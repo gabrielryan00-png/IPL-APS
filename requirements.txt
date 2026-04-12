@@ -1,0 +1,17 @@
+# IPL-APS — dependências Python
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Extrator de laudos
+imapclient>=2.3.1
+pyzmail36>=1.0.4
+pdfplumber>=0.10.0
+pdf2image>=1.17.0
+pytesseract>=0.3.10
+pillow>=10.0.0
+pandas>=2.0.0
+openpyxl>=3.1.0
