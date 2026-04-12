@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# IPL-APS — .gitignore
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Credenciais e segredos — NUNCA commitar
+.env
+
+# Bancos de dados — contêm dados de pacientes (LGPD) e senhas de usuários
+*.db
+*.sqlite
+*.sqlite3
+
+# PDFs de exames — dados de saúde identificáveis
+exames/
+ocr_cache/
+
+# Relatórios gerados com dados de pacientes
+relatorio_exames.xlsx
+*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Ambiente virtual
+venv/
+.venv/
+env/
+ENV/
+
+# IDE / editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
