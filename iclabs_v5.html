@@ -931,36 +931,72 @@ function _iniciarDashboard(){
   document.getElementById('sf-user').textContent =
     _AUTH.nome_completo || _AUTH.username;
 
-  // Admin: monta seletor de USF
-  if(_AUTH.role === 'admin'){
-    const wrap = document.getElementById('usf-selector-wrap');
-    const sel  = document.getElementById('usf-selector');
-    wrap.style.display = 'block';
-    // Ordena: ativas primeiro, depois inativas (ambos grupos em ordem alfabética)
-    const usfsOrd = [...(_AUTH.usfs||[])].sort((a,b)=>{
-      if(a.ativa !== b.ativa) return b.ativa - a.ativa;
-      return a.nome.localeCompare(b.nome,'pt');
-    });
-    usfsOrd.forEach(u=>{
-      const opt = document.createElement('option');
-      opt.value = u.id;
-      opt.textContent = u.nome + (u.ativa?'':' ⚠ sem dados');
-      sel.appendChild(opt);
-    });
-    // Inicia na primeira USF ativa
-    const primeiraAtiva = usfsOrd.find(u=>u.ativa);
-    _USF_ATIVA = primeiraAtiva?.id || usfsOrd[0]?.id || null;
-    if(_USF_ATIVA) sel.value = _USF_ATIVA;
-  } else {
-    _USF_ATIVA = _AUTH.usf_id;
-  }
+  // Busca lista de USFs sempre frescos do servidor (garante nomes atualizados)
+  fetch(API_BASE+'/api/usfs', { headers: _authHeaders() })
+    .then(r=>r.json())
+    .then(usfs=>{
+      // Admin: monta seletor de USF
+      if(_AUTH.role === 'admin'){
+        const wrap = document.getElementById('usf-selector-wrap');
+        const sel  = document.getElementById('usf-selector');
+        sel.innerHTML = ''; // limpa opções antigas do cache
+        wrap.style.display = 'block';
+        // Ordena: ativas primeiro, depois inativas (alfabético)
+        const usfsOrd = [...usfs].sort((a,b)=>{
+          if(a.ativa !== b.ativa) return b.ativa - a.ativa;
+          return a.nome.localeCompare(b.nome,'pt');
+        });
+        usfsOrd.forEach(u=>{
+          const opt = document.createElement('option');
+          opt.value = u.id;
+          opt.textContent = u.nome + (u.ativa?'':' ⚠ sem dados');
+          sel.appendChild(opt);
+        });
+        // Inicia na primeira USF ativa
+        const primeiraAtiva = usfsOrd.find(u=>u.ativa);
+        _USF_ATIVA = primeiraAtiva?.id || usfsOrd[0]?.id || null;
+        if(_USF_ATIVA) sel.value = _USF_ATIVA;
+      } else {
+        _USF_ATIVA = _AUTH.usf_id;
+      }
 
-  if(_USF_ATIVA){
-    document.getElementById('loading').style.display='flex';
-    _carregarTerritorio(_USF_ATIVA);
-  } else {
-    _erroCarregamento('Nenhuma USF disponível para este usuário.');
-  }
+      if(_USF_ATIVA){
+        document.getElementById('loading').style.display='flex';
+        _carregarTerritorio(_USF_ATIVA);
+      } else {
+        _erroCarregamento('Nenhuma USF disponível para este usuário.');
+      }
+    })
+    .catch(()=>{
+      // Fallback para lista do JWT caso a API falhe
+      const usfsOrd = [...(_AUTH.usfs||[])].sort((a,b)=>{
+        if(a.ativa !== b.ativa) return b.ativa - a.ativa;
+        return a.nome.localeCompare(b.nome,'pt');
+      });
+      if(_AUTH.role === 'admin'){
+        const wrap = document.getElementById('usf-selector-wrap');
+        const sel  = document.getElementById('usf-selector');
+        sel.innerHTML = '';
+        wrap.style.display = 'block';
+        usfsOrd.forEach(u=>{
+          const opt = document.createElement('option');
+          opt.value = u.id;
+          opt.textContent = u.nome + (u.ativa?'':' ⚠ sem dados');
+          sel.appendChild(opt);
+        });
+        const primeiraAtiva = usfsOrd.find(u=>u.ativa);
+        _USF_ATIVA = primeiraAtiva?.id || usfsOrd[0]?.id || null;
+        if(_USF_ATIVA) sel.value = _USF_ATIVA;
+      } else {
+        _USF_ATIVA = _AUTH.usf_id;
+      }
+      if(_USF_ATIVA){
+        document.getElementById('loading').style.display='flex';
+        _carregarTerritorio(_USF_ATIVA);
+      } else {
+        _erroCarregamento('Nenhuma USF disponível para este usuário.');
+      }
+    });
 }
 
 function trocarUSF(usf_id){
