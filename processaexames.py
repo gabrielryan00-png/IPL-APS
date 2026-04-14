@@ -69,6 +69,29 @@ LABEL_NORMAL     = "Exames/🟢 NORMAL"
 LABEL_REVISAR    = "Exames/🟡 REVISAR (falha extração)"
 LABEL_SINALIZADO = "Exames/✅ Sinalizado"  # evita duplicar resposta
 
+# E-mails que devem ser ignorados pelo processador (não geram laudos)
+EMAILS_IGNORADOS = {
+    "gilvania3lima@gmail.com",
+}
+
+# Sublabels por equipe: chave = label Gmail, valor = fragmentos do nome do médico (basta um bater)
+_EQUIPES: dict[str, list[str]] = {
+    "Exames/🔴 ALTERADO - VERIFICAR/Equipe 1": ["MARIANA MONTEIRO", "CLAUDIO DOHI"],
+    "Exames/🔴 ALTERADO - VERIFICAR/Equipe 2": ["THAMMY SOLER", "JOAO VICTOR"],
+    "Exames/🔴 ALTERADO - VERIFICAR/Equipe 3": ["HENRIQUE PAPAIS", "HENRIQUE PEREIRA PAPAIS", "ROSA RODRIGUES", "ROSA M.RODRIGUES"],
+    "Exames/🔴 ALTERADO - VERIFICAR/Equipe 4": ["EVANDRO CHARLES", "ANA SILVIA PEREIRA MATSUCHITA"],
+}
+
+def _label_equipe(medico: str | None) -> str | None:
+    """Retorna o label Gmail da equipe correspondente ao médico, ou None."""
+    if not medico:
+        return None
+    m = medico.upper().strip()
+    for label, fragmentos in _EQUIPES.items():
+        if any(frag in m for frag in fragmentos):
+            return label
+    return None
+
 os.makedirs(PASTA_EXAMES, exist_ok=True)
 
 # =========================
@@ -1454,7 +1477,11 @@ def processar_emails(
         garantir_label_existe(imap, lbl)
 
     before_date = data_final + timedelta(days=1)
-    criteria = ["FROM", REMETENTE_LAB, "SINCE", data_inicial, "BEFORE", before_date]
+    criteria = ["SINCE", data_inicial, "BEFORE", before_date]
+    if REMETENTE_LAB:
+        criteria = ["FROM", REMETENTE_LAB] + criteria
+    else:
+        log("⚠️  REMETENTE_LAB não configurado — buscando todos os e-mails do período.")
     if somente_nao_lidos:
         criteria = ["UNSEEN"] + criteria
 
@@ -1479,6 +1506,13 @@ def processar_emails(
         subject_original = message.get_subject() or "Laudos"
         message_id = obter_message_id(message)
 
+        # Ignorar remetentes bloqueados
+        remetente_raw = message.get_decoded_header("From") or ""
+        remetente_email = remetente_raw.lower()
+        if any(ignorado in remetente_email for ignorado in EMAILS_IGNORADOS):
+            log(f"[UID {uid}] ⏭️  Ignorado (remetente bloqueado: {remetente_raw.strip()})")
+            continue
+
         # 1) BAIXAR PDFs DO EMAIL
         pdf_paths = []
         for part in message.mailparts:
@@ -1497,6 +1531,7 @@ def processar_emails(
         extraiu_algum = False
         falha_texto = False
         resultados_uid = []
+        medico_uid: str | None = None   # médico do primeiro PDF com metadado
 
         for nome, caminho in pdf_paths:
             log(f"\n[UID {uid}] 📄 {nome}")
@@ -1508,6 +1543,8 @@ def processar_emails(
                 continue
 
             metadados = extrair_metadados(texto)
+            if not medico_uid:
+                medico_uid = metadados.get("Medico")
             exames = extrair_exames(texto)
 
             if exames:
@@ -1542,11 +1579,16 @@ def processar_emails(
 
         # 4) SINALIZAR NO GMAIL
         try:
-            imap.remove_gmail_labels(uid, [LABEL_ALTERADO, LABEL_NORMAL, LABEL_REVISAR])
+            imap.remove_gmail_labels(uid, [LABEL_ALTERADO, LABEL_NORMAL, LABEL_REVISAR]
+                                    + list(_EQUIPES.keys()))
 
             if status_email == "ALTERADO":
                 imap.add_gmail_labels(uid, [LABEL_ALTERADO])
                 imap.add_flags(uid, ["\\Flagged"])
+                label_eq = _label_equipe(medico_uid)
+                if label_eq:
+                    imap.add_gmail_labels(uid, [label_eq])
+                    log(f"  → Equipe: {label_eq.split('/')[-1]}")
                 status_txt = "🔴 EXAME ALTERADO — VERIFICAR (enfermagem)"
             elif status_email == "NORMAL":
                 imap.add_gmail_labels(uid, [LABEL_NORMAL])

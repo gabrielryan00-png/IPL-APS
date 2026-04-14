@@ -143,7 +143,10 @@ _INFER_COND = [
 def _inferir_cronicas(por_analito: dict) -> list:
     """
     Infere condição crônica somente se ao menos um analito do painel estiver ALTERADO
-    na direção clínica esperada (evita DM2 de HbA1c baixa, Anemia de Hb alta, etc.).
+    na direção clínica esperada E acima do limiar diagnóstico (não apenas do limite
+    superior de referência laboratorial).
+
+    Exemplos: HbA1c 5.8% é ALTERADO ACIMA mas NÃO é DM2 (limiar diagnóstico = 6.7%).
     """
     # Exclusões de substring (falso positivo)
     _EXCL: dict = {
@@ -160,6 +163,42 @@ def _inferir_cronicas(por_analito: dict) -> list:
         "Hepatopatia": "ACIMA",    # transaminases elevadas
         "ICC":         "ACIMA",    # BNP / troponina elevados
     }
+    # Limiares diagnósticos mínimos por condição e fragmento de analito.
+    # O valor numérico do último registro DEVE atingir este mínimo (além de ser ALTERADO ACIMA)
+    # para confirmar a condição crônica — evita falso positivo de "pré-estado".
+    _LIMIAR: dict = {
+        "DM2": [
+            # HbA1c: limiar diagnóstico ≥ 6.7% (protocolo municipal; ADA ≥ 6.5%)
+            (["HBA1C", "HEMOGLOBINA GLICADA"], 6.7),
+            # Glicemia de jejum: limiar diagnóstico ≥ 126 mg/dL
+            (["GLICOSE", "GLICEMIA"],          126.0),
+        ],
+        "DRC": [
+            # Creatinina: limiar conservador ≥ 1.5 mg/dL para inferir DRC
+            (["CREATININA"],                   1.5),
+        ],
+        "Gota": [
+            # Ácido úrico: gota clínica ≥ 8.0 mg/dL (hiperuricemia assintomática abaixo)
+            (["ACIDO URICO", "URICO"],         8.0),
+        ],
+    }
+
+    def _valor_float(registros) -> float | None:
+        """Tenta converter o valor do último registro em float."""
+        try:
+            return float(str(registros[-1][1]).replace(",", ".").strip())
+        except (ValueError, TypeError):
+            return None
+
+    def _limiar_ok(cond: str, key: str, registros) -> bool:
+        """Retorna True se não há limiar definido OU se o valor atinge o limiar."""
+        limiares = _LIMIAR.get(cond, [])
+        for frags, minimo in limiares:
+            if any(_contem(key, f) for f in frags):
+                v = _valor_float(registros)
+                return v is not None and v >= minimo
+        return True  # sem limiar específico para este analito → basta ALTERADO
+
     result = []
     for cond, kws in _INFER_COND:
         excl    = _EXCL.get(cond, [])
@@ -173,6 +212,8 @@ def _inferir_cronicas(por_analito: dict) -> list:
                     continue
                 if dir_req and dir_req not in st_up:
                     continue   # direção errada — não confirma condição
+                if not _limiar_ok(cond, key, registros):
+                    continue   # valor abaixo do limiar diagnóstico — pré-estado, não crônico
                 result.append(cond)
                 break
     return result
@@ -764,6 +805,7 @@ def _ipl_paciente(pac_id: int, nome: str, dt_nasc: str, medico: str) -> dict | N
         "padroes_detectados": padroes_detectados,
         "tendencias": tendencias,
         "historico":  historico,
+        "medico":     medico or "—",
     }
 
 

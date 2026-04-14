@@ -662,6 +662,10 @@ function renderPerfil(p){
           ${p.dt_nasc?`<span class="meta-tag" title="Data de nascimento">DN: ${p.dt_nasc}</span>`:''}
           ${(p.cronicas||[]).map(c=>`<span class="meta-tag" style="color:var(--pri);border-color:var(--pri)">${c}</span>`).join('')}
         </div>
+        ${p.medico&&p.medico!=='—'?`<div style="margin-top:6px;font-size:11px;color:var(--muted);font-family:'IBM Plex Mono',monospace">
+          <span style="color:var(--faint);text-transform:uppercase;letter-spacing:.06em;font-size:10px">Médico solicitante</span>
+          <span style="color:var(--txt);margin-left:6px;font-weight:500">${p.medico}</span>
+        </div>`:''}
       </div>
       <div style="text-align:right">
         <div style="font-size:38px;font-weight:700;letter-spacing:-.03em;color:${cl.col}">${p.ipl.toFixed(1)}</div>
