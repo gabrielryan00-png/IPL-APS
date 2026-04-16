@@ -1,0 +1,158 @@
+name: Build IPL-APS Executables
+
+on:
+  push:
+    tags:
+      - "v*"          # dispara em: git tag v1.0.0 && git push --tags
+  workflow_dispatch:  # disparo manual pelo botão no GitHub
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: IPL-APS-linux.tar.gz
+            exe_name: IPL-APS
+          - os: windows-latest
+            artifact: IPL-APS-windows.zip
+            exe_name: IPL-APS.exe
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.os }})
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Python ──────────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # ── Dependências do sistema (Linux) ─────────────────────────────────
+      - name: Instalar dependências do sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            tesseract-ocr tesseract-ocr-por \
+            poppler-utils \
+            libglib2.0-0 libsm6 libxrender1 libxext6 \
+            python3-tk
+
+      # ── Dependências Python ─────────────────────────────────────────────
+      - name: Instalar dependências Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # ── Build PyInstaller ───────────────────────────────────────────────
+      - name: Build executável
+        run: pyinstaller ipl_aps.spec --noconfirm
+
+      # ── Arquivos extras no dist ─────────────────────────────────────────
+      - name: Copiar arquivos extras (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist/IPL-APS/data
+          cp .env.example dist/IPL-APS/ || true
+          cp valores_referencia.sql dist/IPL-APS/ || true
+          cp IPL_SCORE_METODOLOGIA.md dist/IPL-APS/ || true
+          cat > dist/IPL-APS/LEIA-ME.txt << 'EOF'
+          IPL-APS — Sistema Municipal de Prioridade Laboratorial
+          =======================================================
+          1. Execute ./IPL-APS
+          2. Preencha o assistente de configuração
+          3. Acesse http://localhost:8080
+          Secretaria Municipal de Saúde · Suzano/SP
+          EOF
+
+      - name: Copiar arquivos extras (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\IPL-APS\data
+          Copy-Item .env.example dist\IPL-APS\ -ErrorAction SilentlyContinue
+          Copy-Item valores_referencia.sql dist\IPL-APS\ -ErrorAction SilentlyContinue
+          Copy-Item IPL_SCORE_METODOLOGIA.md dist\IPL-APS\ -ErrorAction SilentlyContinue
+          Set-Content dist\IPL-APS\LEIA-ME.txt @"
+          IPL-APS — Sistema Municipal de Prioridade Laboratorial
+          =======================================================
+          1. Execute IPL-APS.exe
+          2. Preencha o assistente de configuração
+          3. Acesse http://localhost:8080
+          Secretaria Municipal de Saúde · Suzano/SP
+          "@
+
+      # ── Empacotar ───────────────────────────────────────────────────────
+      - name: Empacotar (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf ${{ matrix.artifact }} -C dist IPL-APS
+
+      - name: Empacotar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist\IPL-APS -DestinationPath ${{ matrix.artifact }}
+
+      # ── Upload artifact ─────────────────────────────────────────────────
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 30
+
+  # ── Cria GitHub Release com os dois arquivos ────────────────────────────
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: IPL-APS-linux.tar.gz
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: IPL-APS-windows.zip
+
+      - name: Criar Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "IPL-APS ${{ github.ref_name }}"
+          body: |
+            ## IPL-APS ${{ github.ref_name }}
+
+            ### Downloads
+            | Plataforma | Arquivo | Instruções |
+            |---|---|---|
+            | Linux 64-bit | `IPL-APS-linux.tar.gz` | `tar -xzf IPL-APS-linux.tar.gz && ./IPL-APS/IPL-APS` |
+            | Windows 10/11 | `IPL-APS-windows.zip` | Extrair e executar `IPL-APS.exe` |
+
+            ### Requisitos externos (instalar separadamente)
+            - **Tesseract OCR** (para PDFs sem texto embutido)
+              - Linux: `sudo apt install tesseract-ocr tesseract-ocr-por`
+              - Windows: [UB Mannheim Tesseract](https://github.com/UB-Mannheim/tesseract/wiki)
+
+            ### Primeiro uso
+            1. Execute o programa — o assistente de configuração abrirá automaticamente
+            2. Informe e-mail Gmail, senha de app e senha do administrador
+            3. Acesse o dashboard em `http://localhost:8080`
+
+            ---
+            Secretaria Municipal de Saúde · Suzano/SP
+          files: |
+            IPL-APS-linux.tar.gz
+            IPL-APS-windows.zip
+          draft: false
+          prerelease: false

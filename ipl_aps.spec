@@ -130,6 +130,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+import sys as _sys
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -140,12 +142,15 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,       # sem janela de terminal (modo GUI)
+    console=False,           # sem janela de terminal (modo GUI puro)
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon=None,               # substitua por "icon.ico" se tiver um ícone
+    # Windows: evita que o antivírus bloqueie (sem manifest de UAC elevado)
+    uac_admin=False,
+    uac_uiaccess=False,
 )
 
 coll = COLLECT(
