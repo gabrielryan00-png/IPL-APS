@@ -163,6 +163,11 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);min-he
 .vel-rate{font-size:10px;color:var(--muted);margin-top:3px;font-family:'IBM Plex Mono',monospace}
 .vel-tend{font-size:11px;margin-top:3px}
 .aviso{margin-top:28px;padding:10px 14px;background:rgba(201,146,10,.05);border:1px solid rgba(201,146,10,.18);border-radius:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--pri);line-height:1.6}
+.evol-btn{background:var(--bg3);border:1px solid var(--border);color:var(--muted);border-radius:5px;padding:3px 9px;font-size:10px;font-family:'IBM Plex Mono',monospace;cursor:pointer;transition:.15s}
+.evol-btn:hover{border-color:var(--acc);color:var(--txt)}
+.evol-btn-active{background:var(--acc);border-color:var(--acc);color:#fff}
+.evol-card{transition:box-shadow .15s}
+.evol-card:hover{box-shadow:0 0 0 1px var(--acc)33,0 4px 16px rgba(0,0,0,.3)}
 .sec-gap{margin-top:16px}
 /* Loading */
 #loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);z-index:999;gap:14px}
@@ -397,6 +402,23 @@ const LACUNA_CLS = {
 
 function bdg(t,cls){return `<span class="bdg ${cls}">${t}</span>`}
 function tp(t){return `<span class="tp ${TP_CLS[t]||'tpsh'}">${t||'—'}</span>`}
+
+function _evolFiltro(tipo){
+  // Atualiza botões ativos
+  ['all','pior','mel','est'].forEach(k=>{
+    const b=document.getElementById('evol-btn-'+k);
+    if(b) b.classList.remove('evol-btn-active');
+  });
+  const mapBtn={'todos':'all','piora':'pior','melhora':'mel','estavel':'est'};
+  const btn=document.getElementById('evol-btn-'+(mapBtn[tipo]||'all'));
+  if(btn) btn.classList.add('evol-btn-active');
+  // Filtra cards
+  document.querySelectorAll('#evol-grid .evol-card').forEach(c=>{
+    const t=c.dataset.tend||'';
+    const vis=tipo==='todos'||(tipo==='piora'&&t==='piora')||(tipo==='melhora'&&t==='melhora')||(tipo==='estavel'&&(t==='estável'||t==='estavel'||t==='sem dados'));
+    c.style.display=vis?'':'none';
+  });
+}
 function scol(s){return s>=70?"var(--ava)":s>=45?"var(--pri)":s>=25?"var(--rev)":"var(--seg)"}
 
 function nav(el){
@@ -839,6 +861,104 @@ function renderPerfil(p){
         </div>`;
       }).join('')}
     </div>`;
+  }
+
+  // ─ Evolução analítica (comparativo histórico por analito)
+  const evol = (p.evolucao_analitica||[]);
+  if(evol.length){
+    html+=`<div class="card sec-gap" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="card-title" style="margin:0">Evolução analítica — comparativo histórico</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button id="evol-btn-all"  onclick="_evolFiltro('todos')"    class="evol-btn evol-btn-active">Todos (${evol.length})</button>
+          <button id="evol-btn-pior" onclick="_evolFiltro('piora')"    class="evol-btn">Piora</button>
+          <button id="evol-btn-mel"  onclick="_evolFiltro('melhora')"  class="evol-btn">Melhora</button>
+          <button id="evol-btn-est"  onclick="_evolFiltro('estavel')"  class="evol-btn">Estável</button>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--faint);margin-bottom:12px;font-family:'IBM Plex Mono',monospace">
+        ${evol.length} analito(s) com ≥2 coletas · pontos = linha do tempo · barra = magnitude do último valor
+      </div>
+      <div id="evol-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">`;
+
+    evol.forEach(e=>{
+      const gc  = GC[e.grupo]||'var(--muted)';
+      const col = e.tend==='PIORA'?'var(--ava)':e.tend==='MELHORA'?'var(--ok)':'var(--muted)';
+      const arrow = e.tend==='PIORA'?'↑':'  ↓';// will use custom
+      const ico = e.tend==='PIORA'?'↗':'↙';
+      const tendIco = e.tend==='PIORA'?`<span style="color:var(--ava);font-size:13px">↗</span>`:
+                      e.tend==='MELHORA'?`<span style="color:var(--ok);font-size:13px">↘</span>`:
+                      `<span style="color:var(--muted);font-size:13px">→</span>`;
+
+      // Miniatura sparkline SVG
+      const pts = e.pontos.filter(pt=>pt.valor!=null);
+      let sparkSvg = '';
+      if(pts.length>=2){
+        const vals = pts.map(pt=>pt.valor);
+        const mn=Math.min(...vals), mx=Math.max(...vals);
+        const range = mx-mn || 1;
+        const W=120, H=32, pad=3;
+        const xs = pts.map((_,i)=>pad + i*(W-2*pad)/(pts.length-1));
+        const ys = pts.map(pt=>H-pad-(((pt.valor||mn)-mn)/range)*(H-2*pad));
+        const polyPts = xs.map((x,i)=>`${x},${ys[i]}`).join(' ');
+        // fill area
+        const fillPts = `${xs[0]},${H} `+polyPts+` ${xs[xs.length-1]},${H}`;
+        const lineCol = e.tend==='PIORA'?'#f85149':e.tend==='MELHORA'?'#3fb950':'#6e7681';
+        sparkSvg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible">
+          <polygon points="${fillPts}" fill="${lineCol}" fill-opacity="0.12"/>
+          <polyline points="${polyPts}" fill="none" stroke="${lineCol}" stroke-width="1.5" stroke-linejoin="round"/>
+          ${xs.map((x,i)=>`<circle cx="${x}" cy="${ys[i]}" r="2.5" fill="${lineCol}"><title>${pts[i].data}: ${pts[i].valor} ${e.unidade}</title></circle>`).join('')}
+        </svg>`;
+      }
+
+      // Delta display
+      const dSign = e.delta!=null?(e.delta>0?'+':''):'';
+      const dPct  = e.delta_pct!=null?` (${e.delta>0?'+':''}${e.delta_pct}%)`:'';
+      const deltaStr = e.delta!=null?`${dSign}${e.delta} ${e.unidade}${dPct}`:'—';
+
+      // Status da última coleta
+      const stLast = e.pontos[e.pontos.length-1]?.status||'';
+      const stLastCol = 'ACIMA' in stLast||stLast.includes('ACIMA')?'var(--ava)':
+                         stLast.includes('ABAIXO')?'var(--pri)':'var(--ok)';
+
+      html+=`<div class="evol-card" data-tend="${e.tend.toLowerCase()}" style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px;position:relative;overflow:hidden">
+        <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:${gc};border-radius:10px 0 0 10px"></div>
+        <div style="padding-left:6px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+            <div>
+              <div style="font-weight:600;font-size:12px;color:var(--txt)">${e.analito}</div>
+              <div style="font-size:10px;color:${gc};font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.05em">${e.grupo}</div>
+            </div>
+            <div style="text-align:right">
+              ${tendIco}
+              <div style="font-size:9px;color:${col};font-family:'IBM Plex Mono',monospace;margin-top:2px">${e.tend}</div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:8px">${sparkSvg}</div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+            <div style="background:var(--bg3);border-radius:6px;padding:6px 8px">
+              <div style="font-size:9px;color:var(--faint);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.05em">1ª coleta</div>
+              <div style="font-size:13px;font-weight:600;color:var(--muted);margin-top:2px">${e.v_primeira??'—'} <span style="font-size:10px;font-weight:400">${e.unidade}</span></div>
+              <div style="font-size:9px;color:var(--faint)">${e.pontos[0]?.data?new Date(e.pontos[0].data+'T12:00:00').toLocaleDateString('pt-BR'):''}</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:6px;padding:6px 8px;border:1px solid ${col}22">
+              <div style="font-size:9px;color:var(--faint);font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.05em">última coleta</div>
+              <div style="font-size:13px;font-weight:700;color:${col};margin-top:2px">${e.v_ultima??'—'} <span style="font-size:10px;font-weight:400">${e.unidade}</span></div>
+              <div style="font-size:9px;color:var(--faint)">${e.pontos[e.pontos.length-1]?.data?new Date(e.pontos[e.pontos.length-1].data+'T12:00:00').toLocaleDateString('pt-BR'):''}</div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${col};font-weight:600">${deltaStr}</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint)">${e.n_coletas} coleta(s) · ref: ${e.ref||'—'}</div>
+          </div>
+        </div>
+      </div>`;
+    });
+
+    html+=`</div></div>`;
   }
 
   // ─ Histórico de coletas

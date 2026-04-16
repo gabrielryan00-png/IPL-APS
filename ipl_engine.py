@@ -768,6 +768,80 @@ def _ipl_paciente(pac_id: int, nome: str, dt_nasc: str, medico: str) -> dict | N
         historico.append({"data": d, "score": round(s_d, 1), "classif": cls_d,
                           "ctx": "coleta laboratorial", "sub": sub})
 
+    # ── Evolução analítica por analito (série temporal) ──────────────────────
+    # Somente analitos com ≥ 2 pontos; inclui valores normais para contexto.
+    evolucao_analitica = []
+    for key, registros in por_analito.items():
+        if len(registros) < 2:
+            continue
+        # Deduplica por data (mantém último registro do dia)
+        por_data_a: dict = {}
+        for reg in registros:
+            d_reg = reg[3][:10] if reg[3] else None
+            if d_reg:
+                por_data_a[d_reg] = reg
+        pontos_ord = sorted(por_data_a.items())   # [(data, reg), ...]
+        if len(pontos_ord) < 2:
+            continue
+
+        pontos = []
+        for d_pt, reg in pontos_ord:
+            try:
+                v = float(str(reg[1]).replace(",", "."))
+            except (ValueError, TypeError):
+                v = None
+            pontos.append({
+                "data":    d_pt,
+                "valor":   v,
+                "status":  str(reg[2]),
+                "unidade": reg[4] if len(reg) > 4 else "",
+                "ref":     reg[5][:40] if len(reg) > 5 and reg[5] else "",
+            })
+
+        # Calcula delta entre primeira e última medição
+        v_pri = pontos[0]["valor"]
+        v_ult = pontos[-1]["valor"]
+        delta = round(v_ult - v_pri, 3) if v_pri is not None and v_ult is not None else None
+        delta_pct = round((v_ult - v_pri) / abs(v_pri) * 100, 1) if (
+            delta is not None and v_pri and v_pri != 0) else None
+
+        # Direção clínica: considera o peso do analito (ACIMA ou ABAIXO é pior)
+        p_ac = _peso_v2(key, "ALTERADO ACIMA")
+        p_ab = _peso_v2(key, "ALTERADO ABAIXO")
+        st_ult = pontos[-1]["status"].upper()
+        st_pri = pontos[0]["status"].upper()
+        if delta is None:
+            tend_an = "SEM DADOS"
+        elif abs(delta) < 1e-6:
+            tend_an = "ESTÁVEL"
+        elif "ACIMA" in st_ult and p_ac >= p_ab:
+            tend_an = "PIORA" if delta > 0 else "MELHORA"
+        elif "ABAIXO" in st_ult and p_ab > p_ac:
+            tend_an = "PIORA" if delta < 0 else "MELHORA"
+        else:
+            tend_an = "MELHORA" if ("NORMAL" in st_ult and "ALTERADO" in st_pri) else (
+                      "PIORA"   if ("ALTERADO" in st_ult and "NORMAL" in st_pri) else "ESTÁVEL")
+
+        evolucao_analitica.append({
+            "analito":   registros[-1][0],   # nome original do DB
+            "key":       key,
+            "grupo":     _grupo(key),
+            "unidade":   pontos[-1]["unidade"],
+            "ref":       pontos[-1]["ref"],
+            "pontos":    pontos,
+            "v_primeira": v_pri,
+            "v_ultima":   v_ult,
+            "delta":      delta,
+            "delta_pct":  delta_pct,
+            "tend":       tend_an,
+            "n_coletas":  len(pontos),
+        })
+
+    # Ordena: pioras primeiro, depois por nº de coletas desc
+    _ord_tend = {"PIORA": 0, "ESTÁVEL": 1, "MELHORA": 2, "SEM DADOS": 3}
+    evolucao_analitica.sort(key=lambda x: (
+        _ord_tend.get(x["tend"], 9), -x["n_coletas"]))
+
     ma_num = (abs(hash(medico or nome)) % 5) + 1
     return {
         "id":               f"PAC_{pac_id:04d}",
@@ -803,9 +877,10 @@ def _ipl_paciente(pac_id: int, nome: str, dt_nasc: str, medico: str) -> dict | N
             {"nome": "estadio_renal",              "contribuicao": round(comp_tfg,    1), "desc": "Bônus por estadio G3b-G5 da TFGe"},
         ],
         "padroes_detectados": padroes_detectados,
-        "tendencias": tendencias,
-        "historico":  historico,
-        "medico":     medico or "—",
+        "tendencias":          tendencias,
+        "historico":           historico,
+        "evolucao_analitica":  evolucao_analitica,
+        "medico":              medico or "—",
     }
 
 
