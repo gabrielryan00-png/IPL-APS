@@ -11,8 +11,9 @@ Roles:
     user   → acessa somente seu usf_id
 """
 
-import os, sqlite3, sys
-from datetime import datetime, timedelta, timezone
+import os, sqlite3, sys, asyncio, threading, logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone, date
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Request, status
@@ -25,6 +26,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_log_agend = logging.getLogger("ipl.agendador")
 
 # ─── Configuração ────────────────────────────────────────────────────────────
 SECRET_KEY   = os.getenv("JWT_SECRET_KEY", "TROQUE_ISSO_NO_.ENV")
@@ -41,13 +44,61 @@ def _verify_pw(s: str, h: str) -> bool:
     return _bcrypt.checkpw(s.encode(), h.encode())
 bearer   = HTTPBearer(auto_error=False)
 
+# ─── Agendador automático de e-mails ─────────────────────────────────────────
+def _executar_processaexames() -> None:
+    """Roda processaexames em modo não-interativo (últimos 3 dias, não lidos)."""
+    try:
+        sys.path.insert(0, DATA_DIR)
+        from processaexames import processar_emails, criar_banco
+        data_fim = date.today()
+        data_ini = data_fim - timedelta(days=3)
+        _log_agend.info("Processando %s → %s", data_ini, data_fim)
+        criar_banco()
+        processar_emails(data_ini, data_fim, somente_nao_lidos=True)
+        _log_agend.info("Processamento concluído.")
+    except Exception:
+        _log_agend.exception("Erro no processamento automático")
+
+
+def _thread_agendador() -> None:
+    """Thread daemon: acorda na próxima hora par e processa e-mails (seg–sex)."""
+    import time
+    _log_agend.info("Agendador iniciado — processará a cada 2 h (seg–sex)")
+    while True:
+        agora  = datetime.now()
+        prox_h = ((agora.hour // 2) + 1) * 2
+        if prox_h >= 24:
+            prox_dt = (agora + timedelta(days=1)).replace(
+                hour=0, minute=0, second=0, microsecond=0)
+        else:
+            prox_dt = agora.replace(
+                hour=prox_h, minute=0, second=0, microsecond=0)
+        espera = max(1.0, (prox_dt - agora).total_seconds())
+        _log_agend.info("Próxima execução: %s (em %.1f h)",
+                        prox_dt.strftime("%Y-%m-%d %H:%M"), espera / 3600)
+        time.sleep(espera)
+        if datetime.now().weekday() >= 5:   # sáb=5, dom=6
+            _log_agend.info("Final de semana — ignorado.")
+            continue
+        _executar_processaexames()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    t = threading.Thread(target=_thread_agendador, daemon=True, name="agendador-emails")
+    t.start()
+    yield   # servidor rodando
+    # thread é daemon — encerra automaticamente com o processo
+
+
 # ─── FastAPI ─────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="IPL-APS Gateway",
     description="Sistema de Prioridade Laboratorial — Rede Municipal Suzano",
     version="2.0",
-    docs_url="/docs",       # Swagger UI (desativar em prod: docs_url=None)
+    docs_url="/docs",
     redoc_url=None,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -412,5 +463,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
         reload=False,           # True apenas em desenvolvimento
-        workers=2,
+        workers=1,   # agendador interno exige processo único
     )

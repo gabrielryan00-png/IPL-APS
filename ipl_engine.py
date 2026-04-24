@@ -126,96 +126,125 @@ def _peso(a: str) -> float:
             return float(p)
     return 5.0
 
-# ── Condições crônicas inferidas ──────────────────────────────────────────────
-# Chaves sem acentos — _ascii() usado em _inferir_cronicas
-_INFER_COND = [
-    ("DM2",          ["HBA1C","HEMOGLOBINA GLICADA","GLICOSE","GLICEMIA","INSULINA"]),
-    ("DRC",          ["CREATININA","UREIA","CISTATINA","MICROALBUMINA","PARATORMONIO","PTH"]),
-    ("DLP",          ["COLESTEROL","LDL","HDL","TRIGLICERID"]),
-    ("ICC",          ["BNP","PRO-BNP","TROPONINA"]),
-    ("Tireoidopatia",["TSH","T4 LIVRE","T3 LIVRE","TIROXINA","T4","T3","TRIIODOTIRONINA"]),
-    ("Anemia",       ["HEMOGLOBINA","FERRITIN","FERRO","TRANSFERRIN","VITAMINA B12"]),
-    ("Hepatopatia",  ["TGO","TGP","AST","ALT","GGT","BILIRRUB","ALBUMINA"]),
-    ("Gota",         ["ACIDO URICO"]),
-    ("Insuficiencia Adrenal", ["CORTISOL"]),
+# ── Condições crônicas inferidas — v2 ─────────────────────────────────────────
+# Formato por analito: ([fragments], direction_or_None, min_numeric_or_None)
+#   direction:  "ACIMA" | "ABAIXO" | None
+#   min_numeric: para ACIMA = valor mínimo; para ABAIXO = valor máximo; None = não verifica
+# Terceiro campo do registro de condição: min_coletas
+#   número de datas distintas com alteração confirmada antes de inferir crônico.
+#   1 = imediato (basta 1 coleta alterada acima do limiar)
+#   2 = requer confirmação em ≥2 coletas (exclui transitório/diurno)
+_INFER_COND_V2 = [
+    # ── DM2: limiares diagnósticos explícitos (ADA / protocolo municipal) ─────
+    ("DM2", [
+        (["HBA1C", "HEMOGLOBINA GLICADA"], "ACIMA", 6.7),    # ADA ≥6.5%; prot.mun. ≥6.7%
+        (["GLICOSE", "GLICEMIA"],          "ACIMA", 126.0),  # critério ADA ≥126 mg/dL jejum
+        # INSULINA excluída: insulina elevada não é critério diagnóstico de DM2
+    ], 1),
+    # ── DRC: creatinina como âncora principal (UREIA excluída — confunde desidratação) ─
+    ("DRC", [
+        (["CREATININA"],    "ACIMA", 1.5),   # limiar conservador ≥1.5 mg/dL
+        (["CISTATINA"],     "ACIMA", None),  # cistatina C elevada confirma DRC
+        (["MICROALBUMINA"], "ACIMA", None),  # microalbuminúria = marcador precoce
+        # UREIA, PARATORMONIO e PTH removidos como âncoras isoladas
+    ], 1),
+    # ── DLP: critério estrito — lipídeos variam com dieta/jejum, exige confirmação ──
+    ("DLP", [
+        (["LDL"],         "ACIMA",  190.0),  # ≥190 mg/dL = risco muito alto (SBC/ACC-AHA)
+        (["TRIGLICERID"], "ACIMA",  200.0),  # ≥200 mg/dL = hipertrigliceridemia franca
+        (["COLESTEROL"],  "ACIMA",  240.0),  # CT ≥240 mg/dL = hipercolesterolemia franca
+        (["HDL"],         "ABAIXO",  35.0),  # ≤35 mg/dL = HDL muito baixo (não apenas borderline)
+    ], 2),  # requer ≥2 coletas confirmadas (variação pré-analítica é alta em lipídeos)
+    # ── ICC: apenas marcadores de IC estabelecida (troponina = evento agudo, não crônico) ─
+    ("ICC", [
+        (["BNP"],     "ACIMA", None),
+        (["PRO-BNP"], "ACIMA", None),
+        # TROPONINA removida — marca lesão miocárdica aguda, não ICC crônica
+    ], 1),
+    # ── Tireoidopatia: requer ≥2 coletas alteradas (exclui subclinical isolada/transitória) ─
+    ("Tireoidopatia", [
+        (["TSH"],                         None, None),
+        (["T4 LIVRE", "TIROXINA"],        None, None),
+        (["T3 LIVRE", "TRIIODOTIRONINA"], None, None),
+        # T4/T3 genérico intencional — cobre laudos que não especificam "livre"
+    ], 2),
+    # ── Anemia: âncoras Hb/Hematócrito; B12 e ferro sérico sozinhos não confirmam ───
+    ("Anemia", [
+        (["HEMOGLOBINA"],  "ABAIXO", None),  # Hb baixa = anemia (excl. HbA1c via _EXCL)
+        (["HEMATOCRIT"],   "ABAIXO", None),  # hematócrito baixo
+        (["FERRITIN"],     "ABAIXO", None),  # ferropenia laboratorial significativa
+        # VITAMINA B12 e FERRO sérico removidos: deficiência ≠ anemia clínica per se
+        # TRANSFERRIN removida: variação grande, muito inespecífica
+    ], 1),
+    # ── Hepatopatia: requer ≥2 coletas (evita elevação transitória pós-esforço/álcool) ─
+    ("Hepatopatia", [
+        (["TGO", "AST"],  "ACIMA", None),
+        (["TGP", "ALT"],  "ACIMA", None),
+        (["GGT"],         "ACIMA", None),
+        (["BILIRRUB"],    "ACIMA", None),
+        (["ALBUMINA"],    "ABAIXO", None),   # hipoalbuminemia = hepatopatia estabelecida
+    ], 2),
+    # ── Gota: hiperuricemia clínica ≥8 mg/dL (assintomática <8 não classifica) ──
+    ("Gota", [
+        (["ACIDO URICO", "URICO"], "ACIMA", 8.0),
+    ], 1),
+    # ── Insuficiência Adrenal: cortisol varia circadianamente → confirmar em ≥2 coletas ─
+    ("Insuficiencia Adrenal", [
+        (["CORTISOL"], "ABAIXO", None),
+    ], 2),
 ]
 
 def _inferir_cronicas(por_analito: dict) -> list:
     """
-    Infere condição crônica somente se ao menos um analito do painel estiver ALTERADO
-    na direção clínica esperada E acima do limiar diagnóstico (não apenas do limite
-    superior de referência laboratorial).
-
-    Exemplos: HbA1c 5.8% é ALTERADO ACIMA mas NÃO é DM2 (limiar diagnóstico = 6.7%).
+    Infere condições crônicas com regras por analito:
+    - direção obrigatória (ACIMA/ABAIXO) por analito, não só por condição
+    - limiares diagnósticos numéricos além do limite de referência laboratorial
+    - mínimo de datas distintas com alteração confirmada para Tireoidopatia,
+      Hepatopatia e Insuficiência Adrenal (evita transitórios e variação diurna)
     """
-    # Exclusões de substring (falso positivo)
     _EXCL: dict = {
         "Anemia":      ["GLICADA", "HBA1C", "A1C"],       # HbA1c é DM2, não anemia
         "DM2":         ["HEMOGLOBINA GLICADA ESTIMADA"],   # GME é derivado
-        "Hepatopatia": ["HEMOGLOBINA", "HEMATOCRIT"],
-    }
-    # Direção obrigatória — None = qualquer ALTERADO
-    _DIRECAO: dict = {
-        "DM2":         "ACIMA",    # hiperglicemia / HbA1c elevada
-        "Anemia":      "ABAIXO",   # hemoglobina / ferritina baixa
-        "DRC":         "ACIMA",    # creatinina / ureia elevada
-        "Gota":        "ACIMA",    # ácido úrico elevado
-        "Hepatopatia": "ACIMA",    # transaminases elevadas
-        "ICC":         "ACIMA",    # BNP / troponina elevados
-    }
-    # Limiares diagnósticos mínimos por condição e fragmento de analito.
-    # O valor numérico do último registro DEVE atingir este mínimo (além de ser ALTERADO ACIMA)
-    # para confirmar a condição crônica — evita falso positivo de "pré-estado".
-    _LIMIAR: dict = {
-        "DM2": [
-            # HbA1c: limiar diagnóstico ≥ 6.7% (protocolo municipal; ADA ≥ 6.5%)
-            (["HBA1C", "HEMOGLOBINA GLICADA"], 6.7),
-            # Glicemia de jejum: limiar diagnóstico ≥ 126 mg/dL
-            (["GLICOSE", "GLICEMIA"],          126.0),
-        ],
-        "DRC": [
-            # Creatinina: limiar conservador ≥ 1.5 mg/dL para inferir DRC
-            (["CREATININA"],                   1.5),
-        ],
-        "Gota": [
-            # Ácido úrico: gota clínica ≥ 8.0 mg/dL (hiperuricemia assintomática abaixo)
-            (["ACIDO URICO", "URICO"],         8.0),
-        ],
+        "Hepatopatia": ["HEMOGLOBINA", "HEMATOCRIT"],      # não é hepatopatia
     }
 
-    def _valor_float(registros) -> float | None:
-        """Tenta converter o valor do último registro em float."""
-        try:
-            return float(str(registros[-1][1]).replace(",", ".").strip())
-        except (ValueError, TypeError):
-            return None
-
-    def _limiar_ok(cond: str, key: str, registros) -> bool:
-        """Retorna True se não há limiar definido OU se o valor atinge o limiar."""
-        limiares = _LIMIAR.get(cond, [])
-        for frags, minimo in limiares:
-            if any(_contem(key, f) for f in frags):
-                v = _valor_float(registros)
-                return v is not None and v >= minimo
-        return True  # sem limiar específico para este analito → basta ALTERADO
+    def _reg_ok(reg, dir_req, min_val) -> bool:
+        """Verifica ALTERADO + direção + limiar numérico para um registro."""
+        st_up = str(reg[2]).upper()
+        if "ALTERADO" not in st_up:
+            return False
+        if dir_req and dir_req not in st_up:
+            return False
+        if min_val is not None:
+            try:
+                v = float(str(reg[1]).replace(",", "."))
+                if dir_req == "ACIMA"  and v < min_val:
+                    return False
+                if dir_req == "ABAIXO" and v > min_val:
+                    return False
+            except (ValueError, TypeError):
+                pass
+        return True
 
     result = []
-    for cond, kws in _INFER_COND:
-        excl    = _EXCL.get(cond, [])
-        dir_req = _DIRECAO.get(cond)
-        for key, registros in por_analito.items():
-            if excl and any(_contem(key, e) for e in excl):
-                continue
-            if any(_contem(key, k) for k in kws):
-                st_up = str(registros[-1][2]).upper()
-                if "ALTERADO" not in st_up:
+    for cond, cond_analitos, min_coletas in _INFER_COND_V2:
+        excl = _EXCL.get(cond, [])
+
+        # Coleta datas únicas em que qualquer analito da condição foi confirmado
+        datas_conf: set = set()
+        for frags, dir_req, min_val in cond_analitos:
+            for key, registros in por_analito.items():
+                if excl and any(_contem(key, e) for e in excl):
                     continue
-                if dir_req and dir_req not in st_up:
-                    continue   # direção errada — não confirma condição
-                if not _limiar_ok(cond, key, registros):
-                    continue   # valor abaixo do limiar diagnóstico — pré-estado, não crônico
-                result.append(cond)
-                break
+                if not any(_contem(key, f) for f in frags):
+                    continue
+                for reg in registros:
+                    if _reg_ok(reg, dir_req, min_val):
+                        datas_conf.add(reg[3][:10] if reg[3] else "_nd_")
+
+        if len(datas_conf) >= min_coletas:
+            result.append(cond)
+
     return result
 
 # ── Faixa etária ──────────────────────────────────────────────────────────────
@@ -436,6 +465,76 @@ def _chave_base(key: str) -> str:
     """Remove sufixo (%) / (abs) para deduplicação de sub-componentes do hemograma."""
     return re.sub(r'\s*\([^)]*\)\s*$', '', key).strip()
 
+# ── Referências canônicas (fallback quando o banco retorna vazio) ─────────────
+# Fonte: IV Diretriz Brasileira de Dislipidemia (SBC 2020), FEBRASGO, Sociedade
+# Brasileira de Patologia Clínica / RMLA. Formato legível para o dashboard.
+# Ordem importa — primeira correspondência de fragmento vence.
+_REF_FALLBACK: list = [
+    # Lipídeos — VLDL antes de LDL (VLDL contém "LDL" como substring)
+    (["VLDL"],        "< 30 mg/dL"),
+    (["LDL"],         "< 130 mg/dL (ótimo < 100 · muito alto ≥ 190)"),
+    (["HDL"],         "Homens ≥ 40 · Mulheres ≥ 50 mg/dL"),
+    (["TRIGLIC"],     "< 150 mg/dL  (alto ≥ 200 · muito alto ≥ 500)"),
+    (["COLESTEROL"],  "< 190 mg/dL (desejável)"),
+    # Hepático
+    (["TGP", "ALANINA AMINO"],         "Homens < 41 · Mulheres < 31 U/L"),
+    (["TGO", "ASPARTATO AMINO"],       "Homens < 40 · Mulheres < 32 U/L"),
+    (["GGT", "GAMA"],                  "Homens < 73 · Mulheres < 38 U/L"),
+    (["BILIRRUB"],                     "Total < 1,2 · Direta < 0,4 mg/dL"),
+    # Renal
+    (["CREATININA"],  "Homens 0,7–1,2 · Mulheres 0,5–1,1 mg/dL"),
+    (["UREIA"],       "15 – 45 mg/dL"),
+    (["ACIDO URICO"], "Homens 3,4–7,0 · Mulheres 2,4–5,7 mg/dL"),
+    # Glicídios
+    (["GLICOSE", "GLICEMIA"],  "Jejum 70–99 mg/dL (DM ≥ 126)"),
+    # Inflamatório
+    (["PROTEINA C", "PCR"],    "< 0,5 mg/dL  (risco CV: < 0,1 mg/dL)"),
+    # Tireoide
+    (["TSH"],        "0,4 – 4,0 µUI/mL"),
+    (["T4 LIVRE"],   "0,8 – 1,8 ng/dL"),
+    (["T3 LIVRE"],   "2,0 – 4,4 pg/mL"),
+    # Ferro
+    (["FERRITIN"],   "Homens 30–400 · Mulheres 13–150 ng/mL"),
+    (["FERRO"],      "60 – 170 µg/dL"),
+    # Vitaminas
+    (["VITAMINA B12"], "200 – 900 pg/mL"),
+    (["VITAMINA D"],   "30 – 100 ng/mL"),
+]
+
+# Padrão de "faixa numérica genérica" gerada por alguns sistemas de LIS
+# (ex: "4.0 - 932.0") — ratio entre max e min > 20× indica valor suspeito
+_RE_NUMERIC_RANGE = re.compile(r'^([\d,\.]+)\s*[-–]\s*([\d,\.]+)$')
+
+def _ref_limpo(key: str, referencia: str) -> str:
+    """Retorna referência exibível: usa o valor do banco quando presente e plausível;
+    caso contrário aplica a tabela de fallback canônica."""
+    ref = (referencia or "").strip()
+
+    # Descarta string se vazia ou claramente inválida (faixa numérica com span absurdo)
+    if ref:
+        m = _RE_NUMERIC_RANGE.match(ref)
+        if m:
+            try:
+                lo = float(m.group(1).replace(",", "."))
+                hi = float(m.group(2).replace(",", "."))
+                if lo > 0 and hi / lo > 20:
+                    ref = ""   # faixa suspeita — descarta
+            except (ValueError, ZeroDivisionError):
+                pass
+        if len(ref) > 60:
+            ref = ""
+
+    if ref:
+        return ref
+
+    # Fallback: primeira entrada cujo fragmento consta no analito (sem acentos)
+    key_a = _ascii(key)
+    for frags, canonical in _REF_FALLBACK:
+        if any(_ascii(f) in key_a for f in frags):
+            return canonical
+
+    return ""
+
 # ── SQL helper ────────────────────────────────────────────────────────────────
 def _q(sql: str, p: tuple = ()) -> list:
     """Executa query no banco corrente do contexto (thread/async safe)."""
@@ -539,8 +638,7 @@ def _ipl_paciente(pac_id: int, nome: str, dt_nasc: str, medico: str) -> dict | N
         referencia = r[5] if len(r) > 5 else ""
         direcao = ("ACIMA" if "ACIMA" in str(status).upper()
                    else "ABAIXO" if "ABAIXO" in str(status).upper() else "")
-        # Limpeza do campo referencia (evita mostrar texto longo/corrompido)
-        ref_display = referencia[:60] if referencia and len(referencia) <= 60 else ""
+        ref_display = _ref_limpo(key, referencia)
         analitos_alterados_detail.append({
             "nome":      analito_nome,
             "key":       key,
@@ -563,33 +661,39 @@ def _ipl_paciente(pac_id: int, nome: str, dt_nasc: str, medico: str) -> dict | N
     cronicas = _inferir_cronicas(por_analito)
     comp_ctx = _comp_cronicas(len(cronicas))
 
-    # Detalhe: quais analitos dispararam cada condição (mesmas exclusões + direção)
+    # Detalhe: quais analitos dispararam cada condição (mesmas regras de _INFER_COND_V2)
     _EXCL_DET: dict = {
         "Anemia":      ["GLICADA", "HBA1C", "A1C"],
         "DM2":         ["HEMOGLOBINA GLICADA ESTIMADA"],
         "Hepatopatia": ["HEMOGLOBINA", "HEMATOCRIT"],
     }
-    _DIR_DET: dict = {
-        "DM2": "ACIMA", "Anemia": "ABAIXO", "DRC": "ACIMA",
-        "Gota": "ACIMA", "Hepatopatia": "ACIMA", "ICC": "ACIMA",
-    }
     cronicas_detail = []
-    for cond, kws in _INFER_COND:
+    for cond, cond_analitos, _min_col in _INFER_COND_V2:
         if cond not in cronicas:
             continue
-        excl    = _EXCL_DET.get(cond, [])
-        dir_req = _DIR_DET.get(cond)
+        excl = _EXCL_DET.get(cond, [])
         analitos_cond = []
-        for key, registros in por_analito.items():
-            if excl and any(_contem(key, e) for e in excl):
-                continue
-            if any(_contem(key, k) for k in kws):
+        for frags, dir_req, min_val in cond_analitos:
+            for key, registros in por_analito.items():
+                if excl and any(_contem(key, e) for e in excl):
+                    continue
+                if not any(_contem(key, f) for f in frags):
+                    continue
                 r2 = registros[-1]; nome_db, valor, status = r2[0], r2[1], r2[2]
                 st_up = str(status).upper()
                 if "ALTERADO" not in st_up:
                     continue
                 if dir_req and dir_req not in st_up:
                     continue
+                if min_val is not None:
+                    try:
+                        v = float(str(valor).replace(",", "."))
+                        if dir_req == "ACIMA"  and v < min_val:
+                            continue
+                        if dir_req == "ABAIXO" and v > min_val:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
                 direcao = "ACIMA" if "ACIMA" in st_up else "ABAIXO" if "ABAIXO" in st_up else ""
                 analitos_cond.append({"nome": nome_db, "valor": str(valor), "direcao": direcao})
         cronicas_detail.append({"condicao": cond, "analitos": analitos_cond})
@@ -795,7 +899,7 @@ def _ipl_paciente(pac_id: int, nome: str, dt_nasc: str, medico: str) -> dict | N
                 "valor":   v,
                 "status":  str(reg[2]),
                 "unidade": reg[4] if len(reg) > 4 else "",
-                "ref":     reg[5][:40] if len(reg) > 5 and reg[5] else "",
+                "ref":     _ref_limpo(key, reg[5] if len(reg) > 5 else ""),
             })
 
         # Calcula delta entre primeira e última medição

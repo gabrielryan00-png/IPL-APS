@@ -488,6 +488,13 @@ class MenuPrincipal:
                 "IPL-APS",
                 f"Dashboard aberto em:\n{url}\n\nO servidor continuará ativo enquanto o programa estiver aberto."
             )
+        except OSError as e:
+            if e.errno == 98:
+                import webbrowser
+                webbrowser.open("http://localhost:8765/")
+                messagebox.showinfo("IPL-APS", "Servidor já está rodando.\nDashboard aberto no browser.")
+            else:
+                messagebox.showerror("Erro", f"Erro ao abrir IPL-APS: {e}")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao abrir IPL-APS: {e}")
 
@@ -709,8 +716,17 @@ exames         (id, paciente_id, analito, valor, unidade,
 
 
 def main():
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     root = tk.Tk()
     MenuPrincipal(root)
+    # Agendador automático: processa e-mails a cada 2h nos dias úteis
+    from servidor_ipl import iniciar_agendador
+    iniciar_agendador()
     root.mainloop()
 
 

@@ -995,13 +995,11 @@ function renderPerfil(p){
 let _AUTH = null;    // { token, role, usf_id, username, nome_completo, usfs }
 let _USF_ATIVA = null;
 
-// API_BASE: se o HTML for aberto fora do gateway (outro porto ou file://),
-// aponta automaticamente para o gateway na porta 8080.
+// API_BASE: quando servido via HTTP usa same-origin (URL relativa).
+// Quando aberto como file:// aponta para o gateway local.
 const API_BASE = (()=>{
-  if(window.location.protocol === 'file:') return 'http://localhost:8080';
-  const p = window.location.port;
-  if(!p || p === '8080' || p === '443' || p === '80') return '';
-  return `${window.location.protocol}//${window.location.hostname}:8080`;
+  if(window.location.protocol === 'file:') return 'http://localhost:8765';
+  return '';
 })();
 
 function _authHeaders(){

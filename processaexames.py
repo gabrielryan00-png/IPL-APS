@@ -1773,5 +1773,24 @@ def main():
     processar_emails(data_inicial, data_final, somente_nao_lidos)
 
 
+def main_cron():
+    """Ponto de entrada não-interativo para cron/agendador.
+    Busca e-mails não lidos dos últimos 3 dias (cobre feriados e fins de semana)."""
+    import sys
+    data_final   = date.today()
+    data_inicial = data_final - timedelta(days=3)
+    print(f"[CRON] {datetime.now():%Y-%m-%d %H:%M} — processando {data_inicial} → {data_final}")
+    try:
+        stats = processar_emails(data_inicial, data_final, somente_nao_lidos=True)
+        print(f"[CRON] Concluído. Stats: {stats}")
+    except Exception as exc:
+        print(f"[CRON] ERRO: {exc}", file=sys.stderr)
+        raise
+
+
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+    if "--cron" in _sys.argv:
+        main_cron()
+    else:
+        main()
