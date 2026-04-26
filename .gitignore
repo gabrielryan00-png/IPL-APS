@@ -51,3 +51,6 @@ logs/
 Thumbs.db
 dist/
 build/
+
+# Screenshots com dados identificáveis — apenas a versão anonimizada é commitada
+docs/screenshots/pacientes_criticos_original.png
