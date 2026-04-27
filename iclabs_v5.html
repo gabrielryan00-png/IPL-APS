@@ -503,10 +503,13 @@ function renderPainel(){
     .sort((a,b)=>b[1]-a[1])
     .map(([c,n])=>{
       const pct=Math.round(n/ps.length*100);
-      return `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:3px">
-        <span style="font-size:12px;font-weight:600">${c}</span>
-        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted)">${n} pac · ${pct}%</span>
-      </div><div class="score-bar-bg" style="height:5px"><div class="score-bar-fill" style="width:${Math.round(n/maxCond*100)}%;background:var(--metab)"></div></div></div>`;
+      const barW=Math.max(Math.round(n/maxCond*100), pct > 0 ? 1 : 0);
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+        <div style="width:110px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c}</div>
+        <div style="flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden"><div style="width:${barW}%;height:100%;background:var(--metab);border-radius:2px;min-width:${n>0?'3px':'0'}">&nbsp;</div></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);white-space:nowrap;width:52px;text-align:right">${n} pac</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--metab);width:30px;text-align:right">${pct}%</div>
+      </div>`;
     }).join('') || '<div style="color:var(--faint);font-size:12px">Nenhuma condição inferida.</div>';
 
   // Top analitos
