@@ -59,6 +59,13 @@ EMAIL        = os.getenv("GMAIL_EMAIL",    "")
 SENHA_APP    = os.getenv("GMAIL_SENHA",    "")
 REMETENTE_LAB = os.getenv("REMETENTE_LAB", "")
 
+_missing = [k for k, v in {"GMAIL_EMAIL": EMAIL, "GMAIL_SENHA": SENHA_APP}.items() if not v]
+if _missing:
+    raise SystemExit(
+        f"[ERRO] Variáveis obrigatórias ausentes no .env: {', '.join(_missing)}\n"
+        "Crie ou corrija o arquivo .env antes de iniciar o processador."
+    )
+
 _DATA_DIR    = os.getenv("DATA_DIR", ".")
 PASTA_EXAMES = os.path.join(_DATA_DIR, "exames")
 RELATORIO    = os.path.join(_DATA_DIR, "relatorio_exames.xlsx")
@@ -1519,8 +1526,12 @@ def processar_emails(
             if part.filename and part.filename.lower().endswith(".pdf"):
                 nome = f"{uid}_{part.filename}"
                 caminho = os.path.join(PASTA_EXAMES, nome)
-                with open(caminho, "wb") as f:
-                    f.write(part.get_payload())
+                try:
+                    with open(caminho, "wb") as f:
+                        f.write(part.get_payload())
+                except OSError as e:
+                    log(f"[UID {uid}] ⚠️ Falha ao salvar PDF '{nome}': {e}")
+                    continue
                 pdf_paths.append((nome, caminho))
                 pdfs += 1
 

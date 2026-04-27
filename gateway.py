@@ -30,11 +30,17 @@ load_dotenv()
 _log_agend = logging.getLogger("ipl.agendador")
 
 # ─── Configuração ────────────────────────────────────────────────────────────
-SECRET_KEY   = os.getenv("JWT_SECRET_KEY", "TROQUE_ISSO_NO_.ENV")
+SECRET_KEY   = os.getenv("JWT_SECRET_KEY", "")
 ALGORITHM    = os.getenv("JWT_ALGORITHM",  "HS256")
 EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "10"))
 AUTH_DB      = os.getenv("AUTH_DB",  "auth.db")
 DATA_DIR     = os.getenv("DATA_DIR", "/home/drelima/exames")
+
+if not SECRET_KEY or SECRET_KEY == "TROQUE_ISSO_NO_.ENV":
+    raise SystemExit(
+        "[ERRO] JWT_SECRET_KEY não definida ou com valor padrão inseguro.\n"
+        "Defina uma chave forte no .env antes de iniciar o gateway."
+    )
 HTML_FILE    = os.path.join(DATA_DIR, "iclabs_v5.html")
 
 def _hash_pw(s: str) -> str:

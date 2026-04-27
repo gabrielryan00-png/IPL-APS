@@ -274,7 +274,7 @@ def _salvar_cache(pdf_path: str, texto: str, metadata: Dict):
         
         logger.debug(f"  → Cache salvo: {hash_key}")
     except Exception as e:
-        logger.debug(f"  ⚠️ Erro ao salvar cache: {e}")
+        logger.warning(f"  ⚠️ Falha ao salvar cache '{cache_file}': {e}")
 
 
 def _carregar_cache(pdf_path: str) -> Optional[str]:
@@ -293,8 +293,8 @@ def _carregar_cache(pdf_path: str) -> Optional[str]:
                 logger.info(f"  ✓ Cache utilizado")
                 return texto.strip()
     except Exception as e:
-        logger.debug(f"  ⚠️ Erro ao carregar cache: {e}")
-    
+        logger.warning(f"  ⚠️ Falha ao carregar cache '{cache_file}': {e}")
+
     return None
 
 
