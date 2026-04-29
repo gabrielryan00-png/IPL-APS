@@ -178,6 +178,27 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);min-he
 .cronograma-row{display:grid;grid-template-columns:1fr 90px 90px 90px;gap:8px;align-items:center;padding:7px 10px;border-radius:6px;font-size:12px}
 .cronograma-row:hover{background:var(--bg3)}
 .cronograma-hdr{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em;padding:4px 10px;display:grid;grid-template-columns:1fr 90px 90px 90px;gap:8px;margin-bottom:4px}
+/* ── Drawer de analito ────────────────────────────────────────────────── */
+#ad-overlay{display:none;position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.45);backdrop-filter:blur(2px)}
+#ad-overlay.open{display:block}
+#ad-drawer{position:fixed;top:0;right:-420px;width:400px;max-width:96vw;height:100%;z-index:901;background:var(--bg2);border-left:1px solid var(--border2);overflow-y:auto;padding:24px 22px 32px;transition:right .22s cubic-bezier(.4,0,.2,1);box-shadow:-6px 0 32px rgba(0,0,0,.35)}
+#ad-drawer.open{right:0}
+.ad-close{position:absolute;top:16px;right:18px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:4px 8px;border-radius:6px}
+.ad-close:hover{background:var(--bg3);color:var(--txt)}
+.ad-nome{font-size:17px;font-weight:700;margin-bottom:2px}
+.ad-grupo{font-family:'IBM Plex Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:14px}
+.ad-val-row{display:flex;align-items:baseline;gap:8px;padding:10px 14px;background:var(--bg3);border-radius:8px;margin-bottom:12px}
+.ad-val{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:700}
+.ad-uni{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted)}
+.ad-ref{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);margin-left:auto}
+.ad-sec{margin-bottom:14px}
+.ad-sec-title{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
+.ad-sec-body{font-size:12px;line-height:1.6;color:var(--txt)}
+.ad-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.ad-tag{font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid var(--border2);color:var(--muted);font-family:'IBM Plex Mono',monospace}
+.ad-ref-box{padding:8px 12px;background:var(--bg3);border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);line-height:1.6}
+.alt-chip{cursor:pointer;transition:filter .15s,transform .15s}
+.alt-chip:hover{filter:brightness(1.15);transform:translateY(-1px)}
 </style>
 </head>
 <body>
@@ -726,7 +747,7 @@ function renderPerfil(p){
 
     ${analitosAlt.length ? `
     <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">
-      Exames alterados que contribuem para o score (${analitosAlt.length})
+      Exames alterados que contribuem para o score (${analitosAlt.length}) <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint)">— clique para detalhes clínicos</span>
     </div>
     <div class="alt-grid" style="margin-bottom:18px">
       ${analitosAlt.map(a=>{
@@ -736,7 +757,8 @@ function renderPerfil(p){
         const shortNome=a.nome.replace(/^HEMOGRAMA\s*[-–]\s*/i,'').replace(/^URINA\s*[-–]\s*/i,'');
         const uni=a.unidade?`<span style="font-size:10px;color:var(--muted);margin-left:2px">${a.unidade}</span>`:'';
         const refLine=a.referencia?`<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--faint);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${a.referencia}">ref: ${a.referencia}</div>`:'';
-        return `<div class="alt-chip" style="border-left-color:${gc}">
+        const idx=_adIdx; _ADDATA[_adIdx++]=a;
+        return `<div class="alt-chip" style="border-left-color:${gc}" onclick="_adOpen(${idx})" title="Ver detalhes clínicos de ${shortNome}">
           <div class="alt-chip-name" style="color:${gc}">${shortNome}</div>
           <div class="alt-chip-val">
             <span style="color:${arrowCol}">${arrow}</span>
@@ -1191,6 +1213,275 @@ function _erroCarregamento(msg){
     setTimeout(()=>document.getElementById('inp-user').focus(), 100);
   }
 })();
+</script>
+
+<!-- ── Drawer de analito ─────────────────────────────────────────────── -->
+<div id="ad-overlay" onclick="_adClose()"></div>
+<div id="ad-drawer">
+  <button class="ad-close" onclick="_adClose()">✕</button>
+  <div id="ad-drawer-content"></div>
+</div>
+
+<script>
+// ── Dicionário fisiopatológico ────────────────────────────────────────────────
+const _ADINFO = {
+  "HEMOGLOBINA GLICADA":{
+    oque:"Reflete a média da glicemia dos últimos 2–3 meses, proporcional à fração de hemoglobina ligada à glicose.",
+    ref:"< 5,7 % normal · 5,7–6,4 % pré-diabetes · ≥ 6,5 % diagnóstico de DM2",
+    acima:"Indica hiperglicemia crônica. Cada 1 % acima de 7 % equivale a ~28 mg/dL a mais na glicemia média e maior risco de complicações microvasculares (retinopatia, nefropatia, neuropatia).",
+    abaixo:"Pode indicar anemia hemolítica, hemoglobinopatia ou controle glicêmico excelente.",
+    condicoes:["DM2","Pré-diabetes","Síndrome metabólica"]
+  },
+  "GLICOSE MÉDIA ESTIMADA":{
+    oque:"Valor calculado a partir da HbA1c — representa a glicemia média estimada nos últimos 2–3 meses.",
+    ref:"< 154 mg/dL (HbA1c < 7 %)",
+    acima:"Derivado diretamente da HbA1c elevada. Indica hiperglicemia crônica e risco aumentado de complicações diabéticas.",
+    abaixo:"Incomum isoladamente; acompanha HbA1c baixa.",
+    condicoes:["DM2","Pré-diabetes"]
+  },
+  "GLICOSE":{
+    oque:"Glicemia de jejum — concentração de glicose no sangue após 8–12 h sem ingestão calórica.",
+    ref:"< 100 mg/dL normal · 100–125 mg/dL pré-diabetes · ≥ 126 mg/dL DM2",
+    acima:"Hiperglicemia de jejum. Dois valores ≥ 126 mg/dL confirmam DM2. Associa-se a resistência insulínica, obesidade e sedentarismo.",
+    abaixo:"Hipoglicemia — excesso de insulina, insuficiência adrenal ou hepática grave.",
+    condicoes:["DM2","Pré-diabetes","Síndrome metabólica","Hipoglicemia"]
+  },
+  "GLICEMIA DE JEJUM":{
+    oque:"Glicemia de jejum — concentração de glicose após 8–12 h de jejum.",
+    ref:"< 100 mg/dL normal · 100–125 mg/dL pré-diabetes · ≥ 126 mg/dL DM2",
+    acima:"Hiperglicemia de jejum. Dois valores ≥ 126 mg/dL confirmam DM2.",
+    abaixo:"Hipoglicemia de jejum — investigar excesso de insulina ou hepatopatia.",
+    condicoes:["DM2","Pré-diabetes","Síndrome metabólica"]
+  },
+  "TRIGLICÉRIDES":{
+    oque:"Lipídeos de reserva energética. Elevação reflete excesso de carboidratos, resistência insulínica e risco cardiovascular.",
+    ref:"< 150 mg/dL desejável · 150–199 limítrofe · 200–499 alto · ≥ 500 muito alto",
+    acima:"Hipertrigliceridemia. Frequentemente associada a DM2, obesidade e síndrome metabólica. Acima de 500 mg/dL há risco de pancreatite aguda.",
+    abaixo:"Incomum; pode ocorrer em hipertireoidismo ou desnutrição.",
+    condicoes:["Dislipidemia","Síndrome metabólica","DM2","Risco cardiovascular"]
+  },
+  "FRAÇÃO DO COLESTEROL - VLDL":{
+    oque:"Lipoproteína de muito baixa densidade — transporta triglicérides do fígado para os tecidos. Calculado como TG/5.",
+    ref:"< 30 mg/dL",
+    acima:"Reflete hipertrigliceridemia. VLDL elevado é marcador de dislipidemia aterogênica e resistência insulínica.",
+    abaixo:"Sem significado clínico relevante quando isolado.",
+    condicoes:["Dislipidemia aterogênica","Síndrome metabólica","DM2"]
+  },
+  "LDL":{
+    oque:"Lipoproteína de baixa densidade — principal transportador de colesterol. Principal alvo terapêutico cardiovascular.",
+    ref:"< 130 mg/dL geral · < 100 mg/dL risco moderado · < 70 mg/dL alto risco/DM2",
+    acima:"Dislipidemia com risco aterosclerótico aumentado. LDL oxidado deposita-se nas artérias, formando placa aterosclerótica.",
+    abaixo:"Em geral benéfico; valores muito baixos podem indicar malabsorção ou hepatopatia grave.",
+    condicoes:["Dislipidemia","Doença arterial coronariana","Aterosclerose"]
+  },
+  "COLESTEROL TOTAL":{
+    oque:"Soma de todas as frações de colesterol. Avalia risco cardiovascular global.",
+    ref:"< 190 mg/dL desejável",
+    acima:"Hipercolesterolemia — avaliar frações (LDL, HDL, VLDL) para identificar o componente predominante.",
+    abaixo:"Valores muito baixos: investigar desnutrição, hipertireoidismo ou hepatopatia grave.",
+    condicoes:["Dislipidemia","Risco cardiovascular"]
+  },
+  "HDL":{
+    oque:"Lipoproteína de alta densidade — faz o transporte reverso de colesterol, removendo-o das artérias. Fator protetor cardiovascular.",
+    ref:"> 40 mg/dL (♂) · > 50 mg/dL (♀) · ≥ 60 mg/dL protetor",
+    acima:"Favorável — HDL elevado é protetor cardiovascular.",
+    abaixo:"HDL baixo é fator de risco independente. Associado a sedentarismo, tabagismo, obesidade abdominal e síndrome metabólica.",
+    condicoes:["Síndrome metabólica","Risco cardiovascular aumentado"]
+  },
+  "CREATININA":{
+    oque:"Produto do metabolismo muscular filtrado exclusivamente pelos rins. Marcador de função renal — sobe quando a filtraçao cai.",
+    ref:"0,6–1,2 mg/dL (♂) · 0,5–1,1 mg/dL (♀)",
+    acima:"Indica redução da taxa de filtração glomerular. Marcador tardio — sobe apenas quando ~50 % dos néfrons estão comprometidos. Sempre comparar com TFGe.",
+    abaixo:"Pode refletir baixa massa muscular (idosos, desnutridos) — não indica melhora renal.",
+    condicoes:["DRC","Nefropatia diabética","Hipertensão arterial sistêmica"]
+  },
+  "UREIA":{
+    oque:"Produto do metabolismo proteico, eliminado pelos rins. Marcador de função renal e estado catabólico.",
+    ref:"15–43 mg/dL",
+    acima:"Azotemia — DRC, desidratação, catabolismo aumentado ou dieta hiperproteica. Sintomas urêmicos surgem com valores muito elevados.",
+    abaixo:"Dieta hipoproteica, hepatopatia grave ou hiper-hidratação.",
+    condicoes:["DRC","Desidratação","Nefropatia"]
+  },
+  "TAXA DE FILTRAÇÃO GLOMERULAR ESTIMADA":{
+    oque:"Estima o volume de plasma filtrado pelos rins por minuto. Calculada pela equação CKD-EPI 2021 a partir de creatinina, idade e sexo.",
+    ref:"≥ 90 G1 · 60–89 G2 · 45–59 G3a · 30–44 G3b · 15–29 G4 · < 15 G5 (mL/min/1,73m²)",
+    acima:"Hiperfiltração glomerular — pode ocorrer nos estágios iniciais da nefropatia diabética.",
+    abaixo:"Redução da função renal. G3+ indica DRC estabelecida. Cada estádio abaixo de G2 multiplica o risco cardiovascular e de progressão.",
+    condicoes:["DRC","Nefropatia diabética","Nefroesclerose hipertensiva"]
+  },
+  "ÁCIDO ÚRICO":{
+    oque:"Produto final do metabolismo das purinas, excretado pelos rins. Acima de 7 mg/dL pode cristalizar nas articulações e túbulos renais.",
+    ref:"2,5–6,2 mg/dL (♀) · 3,5–7,2 mg/dL (♂)",
+    acima:"Hiperuricemia. Risco de gota, nefrolitíase por urato e nefropatia. Associada a síndrome metabólica, DRC e uso de diuréticos.",
+    abaixo:"Raro; pode indicar doença de Wilson ou uricosúricos.",
+    condicoes:["Gota","DRC","Síndrome metabólica","Nefrolitíase"]
+  },
+  "HEMOGLOBINA":{
+    oque:"Proteína eritrocitária transportadora de oxigênio. Marcador central para diagnóstico e classificação de anemia.",
+    ref:"12,0–16,0 g/dL (♀) · 13,5–17,5 g/dL (♂)",
+    acima:"Policitemia — desidratação, doença pulmonar crônica ou policitemia vera.",
+    abaixo:"Anemia. Investigar: ferropriva (RDW↑, VCM↓), megaloblástica (VCM↑), doença crônica (ferritina N/↑), hemolítica.",
+    condicoes:["Anemia ferropriva","Anemia de doença crônica","DRC"]
+  },
+  "FERRITINA":{
+    oque:"Principal proteína de armazenamento de ferro. Também é reagente de fase aguda — sobe em inflamações independente do estoque de ferro.",
+    ref:"12–150 ng/mL (♀) · 12–300 ng/mL (♂)",
+    acima:"Sobrecarga de ferro (hemocromatose), inflamação aguda/crônica, hepatopatia ou neoplasia. Não descarta ferropenia quando há inflamação.",
+    abaixo:"Depleção de estoque de ferro — primeiro marcador a cair na deficiência, antes da hemoglobina. Confirma anemia ferropriva.",
+    condicoes:["Anemia ferropriva","Hemocromatose","Inflamação crônica"]
+  },
+  "VCM":{
+    oque:"Volume Corpuscular Médio — tamanho médio das hemácias. Classifica o tipo morfológico de anemia.",
+    ref:"80–100 fL",
+    acima:"Macrocitose — hemácias grandes. Investigar deficiência de B12/folato, hepatopatia, hipotireoidismo ou alcoolismo.",
+    abaixo:"Microcitose — hemácias pequenas. Anemia ferropriva é a causa mais comum. Outras: talassemia, anemia sideroblástica.",
+    condicoes:["Anemia ferropriva","Anemia megaloblástica","Talassemia"]
+  },
+  "RDW":{
+    oque:"Red Cell Distribution Width — amplitude de distribuição eritrocitária. Mede a variação de tamanho das hemácias (anisocitose).",
+    ref:"11–15 %",
+    acima:"Anisocitose — hemácias de tamanhos muito variados. Sugestivo de anemia ferropriva, deficiência de B12/folato ou anemia mista.",
+    abaixo:"Sem relevância clínica isolada.",
+    condicoes:["Anemia ferropriva","Deficiência de B12/folato","Anemia mista"]
+  },
+  "ERITRÓCITOS":{
+    oque:"Contagem de eritrócitos (glóbulos vermelhos) no sangue periférico.",
+    ref:"4,2–5,4 milhões/mm³ (♀) · 4,5–5,9 milhões/mm³ (♂)",
+    acima:"Poliglobulia — DPOC, altitude elevada ou policitemia vera.",
+    abaixo:"Anemia — redução da capacidade de transporte de O₂.",
+    condicoes:["Anemia","Policitemia"]
+  },
+  "MONÓCITOS":{
+    oque:"Células fagocitárias que participam da resposta inflamatória crônica e da vigilância tecidual.",
+    ref:"0–900 /mm³ (2–10 %)",
+    acima:"Monocitose — infecções crônicas (tuberculose, endocardite), doenças inflamatórias ou síndromes mieloproliferativas.",
+    abaixo:"Monocitopenia — aplasia medular ou corticoterapia em doses altas.",
+    condicoes:["Infecção crônica","Inflamação crônica","Síndromes mieloproliferativas"]
+  },
+  "POTASSIO":{
+    oque:"Principal cátion intracelular. Fundamental para o potencial de membrana cardíaco e muscular.",
+    ref:"3,5–5,1 mmol/L",
+    acima:"Hipercalemia — risco de arritmias graves e parada cardíaca. Causas: DRC, IECA/BRA, espironolactona, acidose.",
+    abaixo:"Hipocalemia — fraqueza muscular, cãibras, arritmias. Diuréticos de alça, diarreia, vômitos.",
+    condicoes:["DRC","Arritmia","Uso de diuréticos"]
+  },
+  "CÁLCIO SÉRICO":{
+    oque:"Mineral essencial para função neuromuscular, coagulação e mineralização óssea.",
+    ref:"8,5–10,2 mg/dL (total)",
+    acima:"Hipercalcemia — hiperparatireoidismo, neoplasias com metástase óssea, intoxicação por vitamina D.",
+    abaixo:"Hipocalcemia — hipoparatireoidismo, deficiência de vitamina D, DRC avançada. Risco de tetania e convulsões.",
+    condicoes:["Hiperparatireoidismo","DRC","Deficiência de vitamina D"]
+  },
+  "CREATINOQUINASE":{
+    oque:"Enzima muscular (CK) liberada na lesão de músculo esquelético ou cardíaco.",
+    ref:"< 190 U/L (♀) · < 308 U/L (♂)",
+    acima:"Miopatia — hipotireoidismo, rabdomiólise, miosite por estatinas, polimiosite. Isoforma CK-MB indica lesão miocárdica.",
+    abaixo:"Sem relevância clínica.",
+    condicoes:["Miopatia por estatina","Hipotireoidismo","Rabdomiólise"]
+  },
+  "GGT":{
+    oque:"Gama-glutamiltransferase — enzima hepática e biliar. Marcador sensível de doença hepatobiliar e alcoolismo.",
+    ref:"< 36 U/L (♀) · < 61 U/L (♂)",
+    acima:"Colestase, doença hepática alcoólica ou não-alcoólica (DHGNA), medicamentos hepatotóxicos, obesidade.",
+    abaixo:"Sem significado clínico.",
+    condicoes:["Hepatopatia alcoólica","DHGNA","Colestase"]
+  },
+  "TSH":{
+    oque:"Hormônio estimulante da tireoide (hipofisário). Regulador central da função tireoidiana — sobe quando a tireoide produz pouco.",
+    ref:"0,4–4,0 mUI/L",
+    acima:"Hipotireoidismo primário — hipófise aumenta TSH para compensar tireoide insuficiente. Sintomas: fadiga, ganho de peso, bradicardia, constipação.",
+    abaixo:"Hipertireoidismo ou supressão por T4 exógeno. Sintomas: palpitações, perda de peso, tremores, ansiedade.",
+    condicoes:["Hipotireoidismo","Hipertireoidismo","Tireoidopatia"]
+  },
+  "T4 LIVRE":{
+    oque:"Fração livre (ativa) da tiroxina. Melhor indicador da função tireoidiana real.",
+    ref:"0,8–1,8 ng/dL",
+    acima:"Hipertireoidismo ou dose suprafisiológica de levotiroxina.",
+    abaixo:"Hipotireoidismo secundário (central) ou hipotireoidismo primário grave.",
+    condicoes:["Hipotireoidismo","Hipertireoidismo"]
+  },
+  "DENSIDADE":{
+    oque:"Capacidade de concentração urinária. Reflete estado de hidratação e função tubular renal.",
+    ref:"1.005–1.030",
+    acima:"Urina concentrada — desidratação, insuficiência cardíaca, síndrome nefrótica.",
+    abaixo:"Urina diluída — hiper-hidratação, diabetes insipidus, DRC avançada com perda da concentração tubular.",
+    condicoes:["Desidratação","DRC","Diabetes insipidus"]
+  },
+  "PESQUISA DE SANGUE OCULTO NAS FEZES":{
+    oque:"Detecta sangue microscópico nas fezes — rastreio de neoplasia colorretal e patologias do trato GI.",
+    ref:"Negativo",
+    acima:"Positivo — sangramento no trato GI. Causas: câncer colorretal, pólipo, gastrite, úlcera, doença inflamatória intestinal. Indicação de colonoscopia.",
+    abaixo:"N/A",
+    condicoes:["Câncer colorretal","Pólipos","Doença inflamatória intestinal","Úlcera péptica"]
+  }
+};
+
+// ── Lookup por nome normalizado ───────────────────────────────────────────────
+function _adLookup(nome){
+  const n = nome.toUpperCase().replace(/^(HEMOGRAMA|URINA)\s*[-–]\s*/i,'').trim();
+  if(_ADINFO[n]) return _ADINFO[n];
+  // busca parcial pelo começo do nome
+  const key = Object.keys(_ADINFO).find(k => n.startsWith(k) || k.startsWith(n.substring(0,8)));
+  return key ? _ADINFO[key] : null;
+}
+
+// ── Estado do drawer ──────────────────────────────────────────────────────────
+let _ADDATA = {};
+let _adIdx  = 0;
+
+function _adOpen(idx){
+  const a = _ADDATA[idx];
+  if(!a) return;
+  const info   = _adLookup(a.nome);
+  const gc     = GC[a.grupo] || 'var(--muted)';
+  const arrow  = a.direcao==='ACIMA'?'↑':a.direcao==='ABAIXO'?'↓':'·';
+  const arrowC = a.direcao==='ACIMA'?'var(--ava)':a.direcao==='ABAIXO'?'var(--rev)':'var(--muted)';
+  const nomeFmt = a.nome.replace(/^HEMOGRAMA\s*[-–]\s*/i,'').replace(/^URINA\s*[-–]\s*/i,'');
+
+  let html = `
+    <div class="ad-nome" style="color:${gc};padding-right:32px">${nomeFmt}</div>
+    <div class="ad-grupo">${a.grupo} · +${a.peso}pt</div>
+    <div class="ad-val-row">
+      <span class="ad-val" style="color:${arrowC}">${arrow} ${a.valor}</span>
+      ${a.unidade?`<span class="ad-uni">${a.unidade}</span>`:''}
+      ${a.referencia?`<span class="ad-ref">ref: ${a.referencia}</span>`:''}
+    </div>`;
+
+  if(info){
+    html += `
+    <div class="ad-sec">
+      <div class="ad-sec-title">O que é</div>
+      <div class="ad-sec-body">${info.oque}</div>
+    </div>
+    <div class="ad-sec">
+      <div class="ad-sec-title">Intervalo de referência</div>
+      <div class="ad-ref-box">${info.ref}</div>
+    </div>
+    <div class="ad-sec">
+      <div class="ad-sec-title" style="color:${arrowC}">Significado — valor ${a.direcao==='ACIMA'?'acima':'abaixo'} da referência</div>
+      <div class="ad-sec-body">${a.direcao==='ACIMA'?info.acima:info.abaixo}</div>
+    </div>
+    <div class="ad-sec">
+      <div class="ad-sec-title">Condições associadas</div>
+      <div class="ad-tags">${(info.condicoes||[]).map(c=>`<span class="ad-tag">${c}</span>`).join('')}</div>
+    </div>`;
+  } else {
+    html += `<div style="font-size:12px;color:var(--faint);margin-top:8px;font-family:'IBM Plex Mono',monospace">Sem descrição clínica catalogada para este analito.</div>`;
+  }
+
+  document.getElementById('ad-drawer-content').innerHTML = html;
+  document.getElementById('ad-overlay').classList.add('open');
+  document.getElementById('ad-drawer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function _adClose(){
+  document.getElementById('ad-overlay').classList.remove('open');
+  document.getElementById('ad-drawer').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+document.addEventListener('keydown', e => { if(e.key==='Escape') _adClose(); });
 </script>
 </body>
 </html>
